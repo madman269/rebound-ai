@@ -3,7 +3,7 @@ import { z } from "zod";
 import { v4 as uuid } from "uuid";
 import { clampText } from "../lib/sanitizer.js";
 import { nextStageFromTranscript } from "../lib/stage.js";
-import { generateEcho } from "../lib/openai.js";
+import { generateEcho, type ReboundMode } from "../lib/openai.js";
 import type { Session, ChatMsg } from "../types.js";
 
 const router = Router();
@@ -11,7 +11,7 @@ const sessions = new Map<string, Session>();
 
 // --- POST /rebound/start ---
 const StartSchema = z.object({
-  mode: z.enum(["closure", "alt_future"]).default("closure"),
+  mode: z.enum(["closure", "alternate", "supportive", "rebound"]).default("closure"),
   summary: z.string().optional(),
 });
 
@@ -70,7 +70,7 @@ router.post("/reply", async (req, res) => {
     const aiText = await generateEcho({
       stage,
       summary: sess.summary,
-      mode: sess.mode,
+      mode: sess.mode as ReboundMode,
       lastMessages: sess.history.slice(-12),
     });
 

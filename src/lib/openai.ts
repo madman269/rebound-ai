@@ -1,107 +1,93 @@
 import OpenAI from "openai";
+import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type { ChatMsg } from "../types.js";
 
-const openai = new OpenAI({
+const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-/**
- * Generates an AI reply for Rebound AI sessions.
- * Always returns a string — never throws an unhandled error.
- */
+// 🔹 Valid conversation modes
+export type ReboundMode = "closure" | "alternate" | "supportive" | "rebound";
+
+export interface GenerateEchoInput {
+  stage?: string;
+  summary?: string;
+  mode: ReboundMode;
+  lastMessages: ChatMsg[];
+}
+
+// 🔹 Prompt templates per mode
+const PROMPTS: Record<ReboundMode, string[]> = {
+  closure: [
+    "You're a calm, compassionate listener helping someone find closure after a breakup.",
+    "Your tone is warm, validating, and grounded in healing.",
+  ],
+  alternate: [
+    "You explore alternate realities where things turned out differently.",
+    "Your tone is thoughtful, bittersweet, and introspective.",
+  ],
+  supportive: [
+    "You’re a gentle motivator who helps someone rebuild confidence and self-worth.",
+    "Your tone is uplifting, kind, and practical.",
+  ],
+  rebound: [
+    "You are a confident, encouraging friend helping someone rediscover their spark.",
+    "Your tone is energetic and empowering.",
+  ],
+};
+
+// 🔹 Build system prompt
+function buildPrompt(
+  stage: string | undefined,
+  summary: string | undefined,
+  mode: ReboundMode
+): string {
+  const base: string[] = PROMPTS[mode] ?? PROMPTS.supportive;
+  const parts: string[] = [...base];
+
+  if (summary) parts.push(`Summary of their story: ${summary}`);
+  if (stage) parts.push(`Current emotional stage: ${stage}`);
+  parts.push("Respond as the AI in this emotional context.");
+
+  return parts.join("\n");
+}
+
+// 🔹 Generate the AI reply
 export async function generateEcho({
   stage,
   summary,
   mode,
   lastMessages,
-}) {
+}: GenerateEchoInput): Promise<string> {
   try {
-    const systemPrompt = buildSystemPrompt(stage, summary, mode);
-    const contextMessages = (lastMessages || []).map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
+    const systemPrompt: string = buildPrompt(stage, summary, mode);
 
-    // --- Call OpenAI ---
-    const completion = await openai.chat.completions.create({
+    const messages: ChatCompletionMessageParam[] = [
+      { role: "system", content: systemPrompt },
+      ...lastMessages.map((m: ChatMsg): ChatCompletionMessageParam => ({
+        role: m.role as "user" | "assistant",
+        content: m.content,
+      })),
+    ];
+
+    const response = await client.chat.completions.create({
       model: "gpt-4o-mini",
-      temperature: 0.85,
+      messages,
+      temperature: 0.8,
       max_tokens: 200,
-      messages: [
-        { role: "system", content: systemPrompt },
-        ...contextMessages,
-      ],
     });
 
-    // --- Extract and sanitize response ---
-    const raw = completion.choices?.[0]?.message?.content || "";
-    const clean = raw.trim();
+    const reply: string =
+      response.choices?.[0]?.message?.content?.trim() ??
+      "I’m listening. Tell me more about that.";
 
-    // Return safe text
-    if (clean.length > 0) return clean;
-
-    // fallback if empty string
-    return randomFallback(stage, mode);
-  } catch (err) {
-    console.error("❌ generateEcho error:", err.message);
-    // fallback for any failure (network, timeout, etc.)
-    return randomFallback(stage, mode);
+    return reply;
+  } catch (err: unknown) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : "Unknown error while contacting AI.";
+    console.error("generateEcho error:", message);
+    return "I’m having trouble connecting right now. Try again in a moment.";
   }
-}
-
-/**
- * Creates a tailored system prompt based on mode/stage.
- */
-function buildSystemPrompt(stage, summary, mode) {
-  let base =
-    "You are Rebound AI — a calm, emotionally intelligent listener who helps users heal from heartbreak. Speak with warmth and insight, never judging.";
-  if (mode === "alt_future" || mode === "alternate") {
-    base +=
-      " You guide users through 'what-if' scenarios, imagining alternate timelines with empathy and creativity.";
-  }
-  if (mode === "closure") {
-    base +=
-      " Help them process loss, regret, and forgiveness. Keep your tone gentle and grounded.";
-  }
-  if (mode === "rebound" || mode === "supportive") {
-    base +=
-      " You rebuild confidence and self-love through uplifting, motivating tone.";
-  }
-  if (summary) {
-    base += ` The user's situation summary: "${summary}". Use this as emotional context.`;
-  }
-  if (stage) {
-    base += ` The current emotional stage is ${stage}. Adjust your tone accordingly.`;
-  }
-  return base;
-}
-
-/**
- * Provides friendly fallback text if OpenAI fails or returns nothing.
- */
-function randomFallback(stage, mode) {
-  const fallbacks = {
-    closure: [
-      "It’s okay — you’ve come a long way. What’s still lingering on your mind?",
-      "You don’t have to rush closure. Sometimes it comes in quiet waves.",
-      "I’m here. Tell me what you wish they’d understood.",
-    ],
-    alternate: [
-      "In another timeline, maybe this played out differently… want to imagine it?",
-      "Let’s rewrite this story together. Where does it start?",
-      "What would have happened if you’d said something else that day?",
-    ],
-    supportive: [
-      "You’re doing better than you think — let’s keep going.",
-      "Even the strongest people need to talk. I’m listening.",
-      "Healing doesn’t mean forgetting — it means forgiving yourself.",
-    ],
-    rebound: [
-      "You’re allowed to start again. What do you want to build next?",
-      "Energy attracts energy. You’re glowing more than you realize.",
-      "This is your comeback arc — and I’m here for it.",
-    ],
-  };
-
-  const list = fallbacks[mode] || fallbacks.closure;
-  return list[Math.floor(Math.random() * list.length)];
 }

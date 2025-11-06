@@ -1,7 +1,11 @@
-export type ChatMsg = { role: "user" | "assistant"; content: string };
-export type Session = {
+export interface ChatMsg {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface Session {
   id: string;
-  mode: "closure" | "alt_future";
+  mode: "closure" | "alternate" | "supportive" | "rebound";
   summary?: string;
   history: ChatMsg[];
-};
+}
