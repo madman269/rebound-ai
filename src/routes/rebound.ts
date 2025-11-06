@@ -9,11 +9,12 @@ import type { Session, ChatMsg } from "../types.js";
 const router = Router();
 const sessions = new Map<string, Session>();
 
-// POST /rebound/start
+// --- POST /rebound/start ---
 const StartSchema = z.object({
   mode: z.enum(["closure", "alt_future"]).default("closure"),
-  summary: z.string().optional()
+  summary: z.string().optional(),
 });
+
 router.post("/start", async (req, res, next) => {
   try {
     const { mode, summary } = StartSchema.parse(req.body);
@@ -22,7 +23,7 @@ router.post("/start", async (req, res, next) => {
       id,
       mode,
       summary: summary ? clampText(summary, 2000) : undefined,
-      history: []
+      history: [],
     };
     sessions.set(id, sess);
     res.json({ sessionId: id });
@@ -31,39 +32,64 @@ router.post("/start", async (req, res, next) => {
   }
 });
 
-// POST /rebound/reply
+// --- POST /rebound/reply ---
 const ReplySchema = z.object({
-  sessionId: z.string().uuid(),
-  message: z.string().min(1).max(2000)
+  // 🔧 Allow any string session ID instead of UUID
+  sessionId: z.string().min(1),
+  message: z.string().min(1).max(2000),
 });
-router.post("/reply", async (req, res, next) => {
+
+router.post("/reply", async (req, res) => {
   try {
     const { sessionId, message } = ReplySchema.parse(req.body);
-    const sess = sessions.get(sessionId);
-    if (!sess) return res.status(404).json({ error: "Session not found" });
+
+    // Retrieve or create session
+    let sess = sessions.get(sessionId);
+    if (!sess) {
+      // 🪄 Auto-create a temporary session if not found
+      sess = {
+        id: sessionId,
+        mode: "closure",
+        summary: undefined,
+        history: [],
+      };
+      sessions.set(sessionId, sess);
+      console.warn(`Created temporary session for id: ${sessionId}`);
+    }
 
     const userMsg: ChatMsg = { role: "user", content: clampText(message) };
     sess.history.push(userMsg);
 
-    const stage = nextStageFromTranscript(sess.history.filter(m => m.role === "user").map(m => m.content));
+    const stage = nextStageFromTranscript(
+      sess.history
+        .filter((m) => m.role === "user")
+        .map((m) => m.content)
+    );
 
+    // 🧠 Generate AI reply (using your OpenAI wrapper)
     const aiText = await generateEcho({
       stage,
       summary: sess.summary,
       mode: sess.mode,
-      lastMessages: sess.history.slice(-12) // keep context tight
+      lastMessages: sess.history.slice(-12),
     });
 
     const aiMsg: ChatMsg = { role: "assistant", content: aiText };
     sess.history.push(aiMsg);
 
-    res.json({ stage, reply: aiText });
+    // ✅ Always return consistent key
+    res.json({ stage, reply: aiText || "I'm listening. Tell me more." });
   } catch (e) {
-    next(e);
+    console.error("❌ Rebound /reply error:", e);
+    // ⚡ Always respond with a reply so the app never breaks
+    res.status(500).json({
+      reply:
+        "Something went wrong on my end — try again in a moment, I’m still here.",
+    });
   }
 });
 
-// Optional: GET /rebound/history?sessionId=...
+// --- GET /rebound/history?sessionId=... ---
 router.get("/history", (req, res) => {
   const sessionId = req.query.sessionId as string;
   const sess = sessionId && sessions.get(sessionId);

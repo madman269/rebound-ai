@@ -12,7 +12,8 @@ import {
 } from "react-native";
 import * as Haptics from "expo-haptics";
 
-const API = "http://YOUR_IP_OR_RENDER_URL:5050"; // ← replace tomorrow
+const API = "https://rebound-ai.onrender.com";
+
 
 export default function ReboundChat() {
   const [sessionId, setSessionId] = useState(null);
